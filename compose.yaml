@@ -1,0 +1,47 @@
+name: task-manager-api
+x-app: &app
+  build: .
+  image: task-manager-api:local
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://app:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/task_manager
+    JWT_SECRET: ${JWT_SECRET:?Set a random JWT_SECRET}
+  init: true
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+
+services:
+  api:
+    <<: *app
+    ports: ['127.0.0.1:8001:8000']
+    restart: unless-stopped
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  migrate:
+    <<: *app
+    command: [alembic, upgrade, head]
+    depends_on:
+      db: {condition: service_healthy}
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: task_manager
+    volumes: [task_manager_data:/var/lib/postgresql/data]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U app -d task_manager]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  task_manager_data:
